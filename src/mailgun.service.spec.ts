@@ -1,28 +1,30 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
-import dotenv from 'dotenv';
-import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-
 import { MAILGUN_CONFIGURATION } from './constants';
 import { MailgunService } from './mailgun.service';
 
-jest.setTimeout(15000);
-const configService = new ConfigService(dotenv.config());
+jest.mock('mailgun.js', () => {
+  return jest.fn().mockImplementation(() => ({
+    client: () => ({
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          id: 'mock-id',
+          message: 'Queued. Thank you.',
+        }),
+      },
+    }),
+  }));
+});
 
 describe('MailgunService', () => {
   let service: MailgunService;
-  let domain: string;
-  let fromEmail: string;
-  const toEmail: string = 'stanislav@wisekaa.dev';
+  const domain = 'example.com';
+  const fromEmail = `postmaster@${domain}`;
+  const toEmail = 'test@example.com';
 
   beforeAll(async () => {
-    domain = configService.get('MAILGUN_DOMAIN');
-    const key = configService.get('MAILGUN_KEY');
-    fromEmail = `postmaster@${domain}`;
-    const url = `https://${configService.get<string>(
-      'MAILGUN_URL',
-      'api.mailgun.net',
-    )}`;
+    const username = 'api';
+    const key = 'test-key';
+    const url = 'https://api.mailgun.net';
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -30,7 +32,7 @@ describe('MailgunService', () => {
         {
           provide: MAILGUN_CONFIGURATION,
           useValue: {
-            username: 'api',
+            username,
             key,
             url,
           },
@@ -46,6 +48,8 @@ describe('MailgunService', () => {
   });
 
   it('Send email', async () => {
+    const createSpy = (service as any).mailgun.messages.create;
+
     const received = await service.createEmail(domain, {
       from: fromEmail,
       to: toEmail,
@@ -53,6 +57,12 @@ describe('MailgunService', () => {
       text: 'Test was successful',
     });
 
-    expect(received).toBeDefined();
+    expect(received).toEqual({
+      id: 'mock-id',
+      message: 'Queued. Thank you.',
+    });
+    expect(createSpy).toHaveBeenCalledWith(domain, expect.objectContaining({
+      subject: 'TEST'
+    }));
   });
 });
